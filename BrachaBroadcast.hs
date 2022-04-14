@@ -23,8 +23,8 @@ data Void
 data BrachaP2F a = BrachaP2F_Input a deriving Show
 data BrachaF2P a = BrachaF2P_Output a | BrachaF2P_OK deriving Show
 
-fBracha :: MonadLeak m t => 
-	Functionality BrachaP2F
+-- fBracha :: MonadLeak m t => 
+-- 	Functionality BrachaP2F
 fBracha (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
     let sid = ?sid :: SID
     let (pidD :: PID, parties :: [PID], sssid :: String) = readNote "fBracha" $ snd sid 
