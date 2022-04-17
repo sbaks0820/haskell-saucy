@@ -22,9 +22,9 @@ forMseq_ xs f = sequence_ $ map f xs
 data CastP2F a = CastP2F_cast a | CastP2F_ro Int deriving Show
 data CastF2P a = CastF2P_OK | CastF2P_Deliver a | CastF2P_ro Bool deriving Show
 data CastF2A a = CastF2A a | CastF2A_ro Bool deriving Show
-data CastA2F a = CastA2F_Deliver PID a | CastA2F_ro Int deriving Show
+data CastA2F a = CastA2F_Deliver PID a deriving Show
 
-fMulticastAndCoin :: MonadFunctionalityAsync m t =>
+fMulticastAndCoin :: MonadFunctionalityAsync m (CastP2F t) =>
     Functionality (CastP2F t) (CastF2P t) (CastA2F t) (CastF2A t) Void Void m
 fMulticastAndCoin (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
     let sid = ?sid :: SID
@@ -64,6 +64,23 @@ fMulticastAndCoin (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
                 writeChan f2p (pidR, CastF2P_Deliver m)
     return ()
 
-                        
-                    
+
+testEnvMulticastCoin z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
+    let sid = ("sidTestEnvMulticastCoin", show (("Alice", "Bob", "Charlie", "Mary"), ""))
+    writeChan z2exec $ SttCrupt_SidCrupt sid empty 
+
+    fork $ forever $ do
+        (pid, (s, m)) <- readChan p2z
+        -- liftIO $ putStrLn $ "Z: party[" ++ pid ++ "] output " ++ show m
+        ?pass
+
+    fork $ forever $ do 
+        m <- readChan a2z
+        liftIO $ putStrLn $ "Z: a sent "
+
+    () <- readChan pump
+    writeChan z2p ("Alice", (("sidX", ""), (CastP2F_ro 0)))
+
+main :: IO String
+main = runITMinIO 120 $ execUC testEnvMulticastCoin idealProtocol (bangFAsync fMulticastAndCoin) dummyAdversary
                     
