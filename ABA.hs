@@ -71,16 +71,35 @@ testEnvMulticastCoin z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
 
     fork $ forever $ do
         (pid, (s, m)) <- readChan p2z
-        -- liftIO $ putStrLn $ "Z: party[" ++ pid ++ "] output " ++ show m
+        liftIO $ putStrLn $ "Z: party[" ++ pid ++ "] output " ++ show m
         ?pass
 
     fork $ forever $ do 
         m <- readChan a2z
-        liftIO $ putStrLn $ "Z: a sent "
+        liftIO $ putStrLn $ "Z: a sent " ++ show m 
+
+    let sid1 :: SID = ("sidX", show ("Alice", ["Alice", "Bob", "Charlie", "Mary"], ""))
 
     () <- readChan pump
-    writeChan z2p ("Alice", (("sidX", ""), (CastP2F_ro 0)))
+    writeChan z2p ("Alice", (sid1, (CastP2F_ro 0)))
 
-main :: IO String
-main = runITMinIO 120 $ execUC testEnvMulticastCoin idealProtocol (bangFAsync fMulticastAndCoin) dummyAdversary
-                    
+    () <- readChan pump
+    writeChan z2p ("Alice", (sid1, (CastP2F_cast 1)))
+
+    () <- readChan pump
+    writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 0)
+
+    () <- readChan pump
+    writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 0)
+
+    () <- readChan pump
+    writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 0)
+
+testMulticastAndCoin :: IO String
+testMulticastAndCoin = runITMinIO 120 $ execUC testEnvMulticastCoin idealProtocol (runAsyncF $ bangFAsync fMulticastAndCoin) dummyAdversary
+
+data ABAF2P = ABAF2P_Out Bool deriving Show
+
+protABA :: MonadProtocol m =>
+    Protocol t (ABAF2P t) (SID, CastF2P t) (SID, 
+ 
