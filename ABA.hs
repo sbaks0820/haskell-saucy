@@ -11,7 +11,7 @@ import Multisession
 
 import Safe
 import Control.Concurrent.MonadIO
-import Control.Monad (forever, forM)
+import Control.Monad (forever, forM, liftM)
 import Control.Monad.Loops (whileM_)
 import Data.IORef.MonadIO
 import Data.Map.Strict (member, empty, insert, Map, (!))
@@ -98,8 +98,99 @@ testEnvMulticastCoin z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
 testMulticastAndCoin :: IO String
 testMulticastAndCoin = runITMinIO 120 $ execUC testEnvMulticastCoin idealProtocol (runAsyncF $ bangFAsync fMulticastAndCoin) dummyAdversary
 
+data ABACast = AUX Int Bool | EST Int Bool
+
+sBroadcast round (bit :: Bool) (f2p, p2f) binptr shouldBCast = do
+    modifyIORef binptr $ Map.insert bit False
+    vCount <- newIORef 0 
+    let firstThreshold = False
+    let secondThreshold = True
+          
+    let sidmycast :: SID = (show ("sbcast", ?pid, round, bit), show (?pid, ?parties, ""))
+
+    if shouldBCast then do
+        writeChan p2f (sidmycast, CastP2F_cast (EST round bit))
+        -- (ssid :: SID, CastF2P_OK) <- readChan f2p
+        (pidS :: PID, CastF2P_OK) <- readChan f2p
+        require (pidS == ?pid) "OK from wrong fMulticast session"
+    else 
+        return ()
+   
+    fork $ forever $ do
+        (from :: PID, CastF2P_Deliver (EST r b)) <- readChan f2p
+        if (b == bit) && (from /= ?pid)  then do
+            modifyIORef vCount $ (+) 1
+            if (vCount == (?t + 1)) then do
+                writeChan p2f (sidmycast, CastP2F_cast (EST round bit)) 
+                (pidS :: PID, CastF2P_OK) <- readChan f2p
+                require (pidS == ?pid) "OK from wrong fMulticast session"
+            else if vCount == ((?t * 2) + 1) then
+                modifyIORef binptr $ Map.insert bit True
+            else
+                return ()
+        else return ()
+    return ()
+        
+
 data ABAF2P = ABAF2P_Out Bool deriving Show
 
+--data CastP2F a = CastP2F_cast a | CastP2F_ro Int deriving Show
+--data CastF2P a = CastF2P_OK | CastF2P_Deliver a | CastF2P_ro Bool deriving Show
+--data CastF2A a = CastF2A a | CastF2A_ro Bool deriving Show
+--data CastA2F a = CastA2F_Deliver PID a deriving Show
+
 protABA :: MonadProtocol m =>
-    Protocol t (ABAF2P t) (SID, CastF2P t) (SID, 
- 
+    Protocol Bool ABAF2P (SID, CastF2P ABACast) (SID, CastP2F ABACast) m
+protABA (z2p, p2z) (f2p, p2f) = do
+    let sid = ?sid :: SID
+    let (parties :: [PID], t :: Int, sssid :: String) = readNote "fMulticast" $ snd sid 
+
+    view <- newIORef (empty :: Map Int [Bool])
+    binptr <- newIORef (empty :: Map Bool Bool)
+
+    -- read message and route to either sBroadcast or to the main protocol
+    -- manyS <- newIORef (empty :: Map Int (Chan (PID, (CastF2P ABACast))))
+    manyS <- newIORef (empty :: Map (SID, int, Bool) (Chan (PID, (CastF2P ABACast))))
+    toMain <- newChan
+
+
+    let newSBcastChan s r b d = do
+                c <- newChan
+                modifyIORef d $ Map.insert (s, r, b) c
+                return c
+
+    let getSChan s r b d = readIORef manyS >>= return . (! (s, r, b))
+    let ssidFromParams r b = (show ("sbcast", ?pid, r, b), show (?pid, ?parties, ""))
+
+    fork $ forever $ do
+        (s, m) <- readChan f2p
+        let (pidS :: PID, fParties :: [PID], ssid :: String) = readNote "fMulticastAndCoin" $ snd s
+        let (sstring :: String, _pidS :: PID, _round :: Int, _bit :: Bool) = readNote "" $ fst s
+
+        case m of 
+            CastF2P_Deliver (EST r b) -> do
+                _toS <- getSChan s r b manyS
+                writeChan _toS (pidS, m)
+            CastF2P_Deliver (AUX r b) -> do
+                _toS <- getSChan s r b manyS
+                writeChan toMain (pidS, m)
+            CastF2P_OK -> do
+                if sstring == "sbcast" then do
+                    _toS <- getSChan s _round _bit manyS
+                    writeChan _toS (pidS, m)
+                else
+                    writeChan toMain (pidS, m)
+            _ -> 
+                writeChan toMain (?pid, m)
+    
+
+    v <- readChan z2p
+    s <- liftM not v
+    supportCoin <- newIORef False 
+    newSBcastChan (ssidFromParams 1 s) 1 s manyS 
+    c <- getSChan (ssidFromParams 1 s) 1 s manyS
+    
+    fork $ do
+        sBroadcast 1 s (c, p2f) binptr False
+
+    return () 
