@@ -46,29 +46,33 @@ type Crupt = Map PID ()
 type MonadFunctionality m =
   (MonadITM m,
     ?sid :: SID,
-    ?crupt :: Crupt)
+    ?crupt :: Crupt,
+    ?pass :: m ())
   
 type Functionality p2f f2p a2f f2a z2f f2z m = MonadFunctionality m => (Chan (PID, p2f), Chan (PID, f2p)) -> (Chan a2f, Chan f2a) -> (Chan z2f, Chan f2z) -> m ()
 
 
-runFunctionality :: MonadITM m => SID -> Crupt -> (Chan (PID, p2f), Chan (PID, f2p)) -> (Chan a2f, Chan f2a) -> (Chan z2f, Chan f2z) -> (MonadFunctionality m => Functionality p2f f2p a2f f2a z2f f2z m) -> m ()
-runFunctionality sid crupt (p2f, f2p) (a2f, f2a) (z2f, f2z) f =
+runFunctionality :: MonadITM m => SID -> Crupt -> Chan () -> (Chan (PID, p2f), Chan (PID, f2p)) -> (Chan a2f, Chan f2a) -> (Chan z2f, Chan f2z) -> (MonadFunctionality m => Functionality p2f f2p a2f f2a z2f f2z m) -> m ()
+runFunctionality sid crupt passer (p2f, f2p) (a2f, f2a) (z2f, f2z) f =
   let ?sid = sid
-      ?crupt = crupt in f (p2f, f2p) (a2f, f2a) (z2f, f2z)
+      ?crupt = crupt 
+      ?pass = writeChan passer () in f (p2f, f2p) (a2f, f2a) (z2f, f2z)
 
 
 {-- Party class --}
 type MonadProtocol m =
    (MonadITM m,
     ?sid :: SID,
-    ?pid :: PID)
+    ?pid :: PID,
+    ?pass :: m ())
 
 type Protocol z2p p2z f2p p2f m = MonadProtocol m => (Chan z2p, Chan p2z) -> (Chan f2p, Chan p2f) -> m ()
 
-runProtocol :: MonadITM m => SID -> PID -> (Chan z2p, Chan p2z) -> (Chan f2p, Chan p2f) -> (MonadProtocol m => Protocol z2p p2z f2p p2f m) -> m ()
-runProtocol sid pid (z2p, p2z) (f2p, p2f) pi =
+runProtocol :: MonadITM m => SID -> PID -> Chan () -> (Chan z2p, Chan p2z) -> (Chan f2p, Chan p2f) -> (MonadProtocol m => Protocol z2p p2z f2p p2f m) -> m ()
+runProtocol sid pid passer (z2p, p2z) (f2p, p2f) pi =
   let ?sid = sid
-      ?pid = pid in pi (z2p, p2z) (f2p, p2f)
+      ?pid = pid 
+      ?pass = writeChan passer () in pi (z2p, p2z) (f2p, p2f)
 
 
 {-- Adversary Class --}
@@ -150,9 +154,9 @@ execUC_ z p f a = do
     -- First, wait for the environment to choose an sid
     SttCrupt_SidCrupt sid crupt <- readChan z2exec
 
-    fork $ runFunctionality sid crupt  (p2f, f2p) (a2f, f2a) (z2f, f2z) f
-    fork $ partyWrapper sid crupt      (z2p, p2z) (f2p, p2f) (a2p, p2a) p
-    fork $ runAdversary sid crupt pass (z2a, a2z) (p2a, a2p) (f2a, a2f) a
+    fork $ runFunctionality sid crupt pass (p2f, f2p) (a2f, f2a) (z2f, f2z) f
+    fork $ partyWrapper sid crupt pass     (z2p, p2z) (f2p, p2f) (a2p, p2a) p
+    fork $ runAdversary sid crupt pass     (z2a, a2z) (p2a, a2p) (f2a, a2f) a
     return ()
 
   runEnvironment pass z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) z
@@ -166,8 +170,8 @@ data SttCruptA2Z a b = SttCruptA2Z_P2A (PID, a) | SttCruptA2Z_F2A b deriving (Sh
 
 {- Protocol party wrapper -}
 
-partyWrapper :: MonadITM m => SID -> Crupt -> (Chan (PID, z2p), Chan (PID, p2z)) -> (Chan (PID, f2p), Chan (PID, p2f)) -> (Chan (PID, p2f), Chan (PID, f2p)) -> (MonadProtocol m => Protocol z2p p2z f2p p2f m) -> m ()
-partyWrapper sid crupt (z2p, p2z) (f2p, p2f) (a2p, p2a) p = do
+partyWrapper :: MonadITM m => SID -> Crupt -> Chan () -> (Chan (PID, z2p), Chan (PID, p2z)) -> (Chan (PID, f2p), Chan (PID, p2f)) -> (Chan (PID, p2f), Chan (PID, f2p)) -> (MonadProtocol m => Protocol z2p p2z f2p p2f m) -> m ()
+partyWrapper sid crupt passer (z2p, p2z) (f2p, p2f) (a2p, p2a) p = do
   -- Store a table that maps each PID to a channel (z2p,f2p,a2p) used
   -- to communicate with that instance of the protocol
   z2pid <- newIORef empty
@@ -187,7 +191,7 @@ partyWrapper sid crupt (z2p, p2z) (f2p, p2f) (a2p, p2a) p = do
                      return (_2pp, pp2_)
         z <- newPid' z2pid p2z "p2z"
         f <- newPid' f2pid p2f "p2f"
-        fork $ runProtocol sid pid z f p
+        fork $ runProtocol sid pid passer z f p
         return ()
 
   -- Retrieve the {z2p,f2p,a2p} channel by PID (or install a new party if this is 
