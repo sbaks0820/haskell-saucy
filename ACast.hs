@@ -343,6 +343,74 @@ testACastReal = runITMinIO 120 $ execUC
   (runAsyncF $ bangFAsync fMulticast)
   dummyAdversary
 
+
+testEnvACastBroken
+  :: (MonadEnvironment m) =>
+  Environment (ACastF2P String) (ClockP2F (ACastP2F String))
+     (SttCruptA2Z (SID, MulticastF2P (ACastMsg String)) (Either (ClockF2A (SID,ACastMsg String)) (SID, MulticastF2A (ACastMsg String))))
+     (SttCruptZ2A (ClockP2F (SID, ACastMsg String)) (Either ClockA2F (SID, MulticastA2F (ACastMsg String)))) Void
+     (ClockZ2F) Transcript m
+testEnvACastBroken z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
+  let extendRight conf = show ("", conf)
+  let sid = ("sidTestACast", show ("Alice", ["Alice", "Bob", "Carol", "Dave"], 1::Integer, ""))
+  let ssid1 = ("sidTestACast", show ("Alice", ["Alice", "Bob", "Carol", "Dave"], ""))
+  let ssid2 = ("sidTestACast", show ("Carol", ["Alice", "Bob", "Carol", "Dave"], ""))
+    
+  writeChan z2exec $ SttCrupt_SidCrupt sid $ Map.fromList [("Alice",())]
+
+  transcript <- newIORef []
+  
+  fork $ forever $ do
+    (pid, m) <- readChan p2z
+    modifyIORef transcript (++ [Right (pid, m)])
+    printEnvIdeal $ "[testEnvACast]: pid[" ++ pid ++ "] output " ++ show m
+    ?pass
+
+  clockChan <- newChan
+  fork $ forever $ do
+    mb <- readChan a2z
+    modifyIORef transcript (++ [Left mb])
+    case mb of
+      SttCruptA2Z_F2A (Left (ClockF2A_Pass)) -> do
+        printEnvReal $ "Pass"
+        ?pass
+      SttCruptA2Z_F2A (Left (ClockF2A_Count c)) ->
+        writeChan clockChan c
+      SttCruptA2Z_P2A (pid, m) -> do
+        case m of
+          _ -> do
+            printEnvReal $ "[" ++pid++ "] (corrupt) received: " ++ show m
+        ?pass
+      _ -> error $ "Help!" ++ show mb
+
+
+  () <- readChan pump
+  writeChan z2a $ SttCruptZ2A_A2P $ ("Alice", ClockP2F_Through (ssid1, ACast_VAL "1"))
+
+  () <- readChan pump
+  writeChan z2a $ SttCruptZ2A_A2P $ ("Alice", ClockP2F_Through (ssid1, ACast_VAL "2"))
+  
+  () <- readChan pump
+  writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 0)
+
+  () <- readChan pump 
+  writeChan z2a $ SttCruptZ2A_A2F $ Left ClockA2F_GetLeaks
+
+  --() <- readChan pump
+  --writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 0)
+
+  -- Output is the transcript
+  writeChan outp =<< readIORef transcript
+
+testACastBroken :: IO Transcript
+testACastBroken = runITMinIO 120 $ execUC
+  testEnvACastBroken
+  (runAsyncP protACast) 
+  (runAsyncF $ bangFAsync fMulticast)
+  dummyAdversary
+
+
+
 {-- TODO: This is duplicated in MPC2.hs, fix it --}
 makeSyncLog handler req = do
   ctr <- newIORef 0

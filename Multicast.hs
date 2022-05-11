@@ -35,6 +35,7 @@ fMulticast (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
       -- Only activated by the designated sender
       fork $ forever $ do
         (pid, m) <- readChan p2f
+        liftIO $ putStrLn $ "\n\nreceived a message to be multicast\n\n"
         if pid == pidS then do
           ?leak m
           forMseq_ parties $ \pidR -> do
@@ -167,8 +168,6 @@ testVEnv z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
 
   () <- readChan pump
   writeChan outp "1"
-
-
 
 
 testEnvMulticast
