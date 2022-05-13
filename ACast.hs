@@ -533,6 +533,24 @@ testACastBroken = runITMinIO 120 $ execUC
   (runAsyncF $ bangFAsync fMulticast)
   dummyAdversary
 
+testCompareBroken :: IO Bool
+testCompareBroken = runITMinIO 120 $ do
+  liftIO $ putStrLn "*** RUNNING REAL WORLD ***"
+  t1R <- runRandRecord $ execUC
+             testEnvACastBroken 
+             (runAsyncP protACastBroken) 
+             (runAsyncF $ bangFAsync fMulticast)
+             dummyAdversary
+  let (t1, bits) = t1R
+  liftIO $ putStrLn ""
+  liftIO $ putStrLn ""  
+  liftIO $ putStrLn "*** RUNNING IDEAL WORLD ***"
+  t2 <- runRandReplay bits $ execUC
+             testEnvACastBroken 
+             (idealProtocol) 
+             (runAsyncF $ fACast)
+             simACast
+  return (t1 == t2)
 
 
 {-- TODO: This is duplicated in MPC2.hs, fix it --}
