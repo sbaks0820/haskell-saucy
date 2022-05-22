@@ -31,15 +31,17 @@ type AuxOutput = (Int, Int)
 type AuxInput = (Int, Int)
 type PayInput = ([Int], Int)
 
-uPay :: UpdateFunction PayState [PayInput] AuxInput 
-uPay state inputs auxIn = ((0,0), (0, [0], 0, [0]))
+uPay :: UpdateFunction paystate [payinput] auxinput 
+uPay state inputs auxin = (auxin, state)
 
+fStateCPay :: (MonadFunctionalityAsync m a) => 
+	Functionality (StateP2F a) (StateF2P PayState) Void Void Void Void m
 fStateCPay = fStateChan (0, [], 0, []) (0, 0) (uPay)
 
 fStateChan :: (MonadFunctionalityAsync m a) => 
-	PayState -> AuxInput ->
-	(UpdateFunction PayState [a] AuxInput) ->
-    Functionality (StateP2F a) (StateF2P PayState) Void Void Void Void m
+	state -> ain ->
+	(UpdateFunction state [a] ain) ->
+    Functionality (StateP2F a) (StateF2P state) Void Void Void Void m
 fStateChan initState initAuxIn update (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
     let sid = ?sid :: SID
     let parties :: [PID] = readNote "fStateChannel" $ snd sid
@@ -56,14 +58,14 @@ fStateChan initState initAuxIn update (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
                 currAuxIn <- readIORef auxIn
                 currPtr <- readIORef ptr
                 _cstate <- readIORef currState
-                let (_aout, _state) = uPay _cstate [x] (currAuxIn !! currPtr)
+                let (_aout, _state) = update _cstate [x] (currAuxIn !! currPtr)
                 writeChan f2p (pid, StateF2P_State _state)
             _ -> return ()
     return ()
 
 
 testEnvStateChannel :: MonadEnvironment m => Environment 
-    (Either (StateF2P Int) ()) 
+    (StateF2P PayState)
     (ClockP2F (StateP2F PayInput)) 
     (SttCruptA2Z (StateF2P PayState) (Either (ClockF2A PayInput) Void)) 
     (SttCruptZ2A (ClockP2F (StateP2F PayInput)) (Either ClockA2F Void)) 
