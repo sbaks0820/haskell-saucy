@@ -20,38 +20,41 @@ import qualified Data.Map.Strict as Map
 data StateP2F a = StateP2F_Input a deriving Show
 data StateF2P a = StateF2P_State a deriving Show
 
-data CPayP2F = CPayDeposit Int deriving Show
-data CPayF2P = CPayCoins Int deriving Show
-data CPayF2C = CPayOutput (Int, Int) deriving Show
-data CPayC2F = CPayAuxIn (Int, Int) | Ok  deriving Show
+data CPayP2F = CPayP2F_Deposit Int | CPayP2F_GetDeposit deriving Show
+data CPayF2P = CPayF2P_Deposit (Int, Int) deriving Show
+data CPayF2C = CPayF2C_Output AuxOutput deriving Show
+data CPayC2F = CPayC2F_AuxIn AuxInput | CPayC2F_Ok  deriving Show
+
 
 type UpdateFunction st inp aux = st -> inp -> aux -> (aux, st)
 
+
 --contractPay :: MonadContract m => Contract CPayP2F CPayF2P CPayF2C CPayC2F () m
---contractPay :: MonadContract m => Contract Int Int (Int, Int) CPayC2F () m
 --contractPay (p2f, f2p) (f2c, c2f) emit = do
 --    depositsL <- newIORef 0
 --    depositsR <- newIORef 0
 --
 --    fork $ forever $ do
 --        --(pid, CPayDeposit x) <- readChan p2f
---        (pid, x :: Int) <- readChan p2f
---        if pid == "Alice" then do
---            modifyIORef depositsL $ (+) x
---        else if pid == "Bob" then do
---            modifyIORef depositsR $ (+) x
---        else error "who is this person?"
---        dl <- readIORef depositsL
---        dr <- readIORef depositsR
---        writeChan c2f (CPayAuxIn (dl, dr))
+--        (pid, m) <- readChan p2f
+--        case m of
+--            CPayP2F_Deposit x -> do
+--                if pid == "Alice" then do
+--                    modifyIORef depositsL $ (+) x
+--                else if pid == "Bob" then do
+--                    modifyIORef depositsR $ (+) x
+--                else error "who is this person?"
+--                dl <- readIORef depositsL
+--                dr <- readIORef depositsR
+--                writeChan c2f (CPayC2F_AuxIn (dl, dr))
+--            CPayP2F_GetDeposit -> do
+--                dl <- readIORef depositsL
+--                dr <- readIORef depositsR
+--                writeChan f2p (pid, CPayF2P_Deposit (dl, dr))
 --    fork $ forever $ do
---        --CPayOutput (x, y) <- readChan f2c
---        (x :: Int, y :: Int) <- readChan f2c
---        -- TODO: send coins to someone
---        writeChan c2f Ok
---
+--        CPayF2C_Output (x, y) <- readChan f2c
+--        writeChan c2f CPayC2F_Ok
 --    return ()
-
 
 --uPay :: (Int, [Int], Int, [Int]) -> [([Int], Int)] -> (Int, Int) -> ((Int, Int), (Int, [Int], Int, [Int]))
 uPay :: UpdateFunction (Int, [Int], Int, [Int]) [([Int], Int)] (Int, Int)

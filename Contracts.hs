@@ -18,7 +18,8 @@ import StaticCorruptions
 import Data.IORef.MonadIO
 import Data.Map.Strict hiding (drop,splitAt)
 
-type MonadContract m = (MonadITM m)
+type MonadContract m = (MonadITM m,
+						?pass :: m ())
 
 type Contract p2f f2p f2c c2f emit m = MonadContract m => (Chan (PID, p2f), Chan (PID, f2p)) -> (Chan f2c, Chan c2f) -> Chan emit -> m ()
 
