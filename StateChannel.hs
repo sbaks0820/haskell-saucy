@@ -106,7 +106,7 @@ fStateChan :: (MonadFunctionalityAsync m a) =>
     state -> auxin ->
     (forall m'. MonadContract m' => Contract cin cout auxout auxin z m') ->
     (UpdateFunction state (Map PID (Maybe a)) auxin auxout) ->
-    Functionality (StateP2F a) (StateF2P state) Void Void Void Void m
+    Functionality (Either (StateP2F a) cin) (Either (StateF2P state) cout) Void Void Void Void m
 fStateChan initState initAuxIn contract update (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
     let sid = ?sid :: SID
     let parties :: [PID] = readNote "fStateChannel" $ snd sid
@@ -120,7 +120,7 @@ fStateChan initState initAuxIn contract update (p2f, f2p) (a2f, f2a) (z2f, f2z) 
     round <- newIORef startRound
     ptr <- newIORef 0
 
-    round0Inputs <- newIORef $ (Map.empty :: Map PID a)
+    round0Inputs <- newIORef (Map.empty :: Map PID a)
     modifyIORef inputs $ Map.insert startRound round0Inputs
     
     
@@ -155,11 +155,26 @@ fStateChan initState initAuxIn contract update (p2f, f2p) (a2f, f2a) (z2f, f2z) 
 
         -- TODO: in one round if all players are honest in DELTA if not
         forMseq_ parties $ \pi -> do
-            eventually $ writeChan f2p (pi, StateF2P_State _state)
+            eventually $ writeChan f2p (pi, Left (StateF2P_State _state))
 
         -- send auxOut to contract
         eventually $ writeChan f2c _aout
         
+
+    fork $ forever $ do
+        (pid, x) <- readChan p2f
+        case x of 
+            Right x -> writeChan p2f2c (pid, x)
+            Left (StateP2F_Input i) -> do
+                _inputs <- readIORef inputs
+                _round <- readIORef round
+                let _currRoundInputs :: IORef (Map PID a) = (_inputs ! _round)
+                let _alreadyInput = readIORef _currRoundInputs >>= return . member pid
+                if _alreadyInputs then
+                    return ()
+                else
+                    modifyIORef _currRoundInputs $ Map.insert pid i
+ 
     --    
     --fork $ forever $ do
     --    (pid, m) <- readChan p2f
@@ -176,10 +191,10 @@ fStateChan initState initAuxIn contract update (p2f, f2p) (a2f, f2a) (z2f, f2z) 
 
 
 testEnvStateChannel :: MonadEnvironment m => Environment 
-    (StateF2P PayState)
-    (ClockP2F (StateP2F PayInput)) 
-    (SttCruptA2Z (StateF2P PayState) (Either (ClockF2A PayInput) Void)) 
-    (SttCruptZ2A (ClockP2F (StateP2F PayInput)) (Either ClockA2F Void)) 
+    (Either (StateF2P PayState) CPayF2P)
+    (ClockP2F (Either (StateP2F PayInput) CPayP2F))
+    (SttCruptA2Z (Either (StateF2P PayState) CPayF2P) (Either (ClockF2A PayInput) Void)) 
+    (SttCruptZ2A (ClockP2F (Either (StateP2F PayInput) CPayP2F)) (Either ClockA2F Void)) 
     Void (ClockZ2F) String m 
 
 testEnvStateChannel z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
@@ -197,7 +212,7 @@ testEnvStateChannel z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
         ?pass
 
     () <- readChan pump
-    writeChan z2p $ ("Alice", ClockP2F_Through (StateP2F_Input (([0], 1) :: PayInput)))
+    writeChan z2p $ ("Alice", ClockP2F_Through (Left (StateP2F_Input (([0], 1) :: PayInput))))
 
     () <- readChan pump
     writeChan outp "environment output: 1"
