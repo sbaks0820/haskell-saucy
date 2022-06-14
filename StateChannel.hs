@@ -41,8 +41,18 @@ uPayPayments (x:xs) wd bound curr = if (x + curr) <= bound then
                                         [x] ++ uPayPayments xs wd bound (curr + x)
                                     else
                                         uPayPayments xs wd bound curr
+
+procParty pid d c inputs =
+    case (inputs ! pid) of
+            Nothing -> do
+                let n = uPayPayments [] 0 (d+c) 0
+                (n, sum n, 0)
+            Just (arr, wd) -> do
+                let n :: [Int] = uPayPayments arr wd (d + c) 0
+                if wd >= (d + c - (sum n)) then (n, sum n, 0)
+                else (n, sum n, wd)
     
-    
+
     
 uPay :: UpdateFunction PayState (Map PID (Maybe PayInput)) CPayC2F CPayF2C
 uPay state inputs auxin = do
@@ -72,6 +82,13 @@ uPay state inputs auxin = do
                  else (0,0)  
 
     (CPayF2C_Output auxOut, (realCredL, newArrL, realCredR, newArrR))
+
+main :: IO ()
+main = do
+    liftIO $ putStrLn $ "output on ([], 1), ([], 1): " ++ show (uPay (0, [], 0, []) (Map.fromList [("Alice", Just ([], 1)), ("Bob", Just ([], 1))]) (CPayC2F_AuxIn (10,10)))
+
+    liftIO $ putStrLn $ "output of processPay: " ++ show (procParty "Alice" 10 0 (Map.fromList [("Alice", Just ([], 1))]))
+    return ()
 
 
 contractPay :: MonadContract m => Contract CPayP2F CPayF2P CPayF2C CPayC2F () m
@@ -199,7 +216,7 @@ fStateChan initState initAuxIn contract update (p2f, f2p) (a2f, f2a) (z2f, f2z) 
         m :: auxin <- readChan c2f
         modifyIORef auxIn $ (++ [m])
         b <- readIORef auxIn >>= return . (+ (-1)) . length
-        liftIO $ putStrLn $ "calling eventually"
+        liftIO $ putStrLn $ "calling aux eventually"
         eventually $ do
             liftIO $ putStrLn $ "andling auxin ptr"
             modifyIORef ptr $ max b 
@@ -254,8 +271,12 @@ testEnvStateChannel z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
     
     -- give only one input
     () <- readChan pump
-    writeChan z2p $ ("Alice", ClockP2F_Through (Left (StateP2F_Input (([0], 1) :: PayInput))))
+    writeChan z2p $ ("Alice", ClockP2F_Through (Left (StateP2F_Input (([1], 0) :: PayInput))))
 
+    -- payment should fail because Bob has no deposit
+    () <- readChan pump
+    writeChan z2p $ ("Bob", ClockP2F_Through (Left (StateP2F_Input (([2], 0) :: PayInput))))
+    
     -- handle the ptr from auxin
     () <- readChan pump
     writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 1)
@@ -269,9 +290,6 @@ testEnvStateChannel z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
 
     () <- readChan pump
     writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 0)
-
-    --() <- readChan pump
-    --writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 2)
 
     -- force state change with only one input
     () <- readChan pump
