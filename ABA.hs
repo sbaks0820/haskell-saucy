@@ -119,7 +119,7 @@ sBroadcast tThreshold pid parties round bit f2p p2f okChan toMainChan binptr sho
     let sidmycast :: SID = (show ("sbcast", pid, round, bit), show (pid, parties, ""))
 
     if shouldBCast then do
-        writeChan p2f (ClockP2F_Through (sidmycast, CastP2F_cast (EST round bit)))
+        writeChan p2f (sidmycast, CastP2F_cast (EST round bit))
         -- (ssid :: SID, CastF2P_OK) <- readChan f2p
         --(pidS :: PID, CastF2P_OK) <- Just $ readChan f2p
         --readChan f2p
@@ -143,7 +143,7 @@ sBroadcast tThreshold pid parties round bit f2p p2f okChan toMainChan binptr sho
                     modifyIORef vCount $ (+) 1
                     _v <- readIORef vCount
                     if (_v == (tThreshold + 1)) then do
-                        writeChan p2f (ClockP2F_Through (sidmycast, CastP2F_cast (EST round bit)))
+                        writeChan p2f (sidmycast, CastP2F_cast (EST round bit))
                         --(pidS :: PID, CastF2P_OK) <- readChan f2p
                         -- require (pidS == pid) "OK from wrong fMulticast session"
                         --return ()
@@ -268,7 +268,7 @@ protABA (z2p, p2z) (f2p, p2f) = do
                         else True 
    
                 let sidMain :: SID = (show ("maincast", pid, round, w), show (pid, parties, ""))
-                writeChan p2f (ClockP2F_Through (sidMain, CastP2F_cast (AUX round w)))
+                writeChan p2f (sidMain, CastP2F_cast (AUX round w))
               
                 readChan toMainOK
         
@@ -310,14 +310,14 @@ testEnvABAHonest z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
     () <- readChan pump
     writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 0)
 
-    -- Deliver Bob's message to Alice 
-    () <- readChan pump
-    writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 3)
+    ---- Deliver Bob's message to Alice 
+    --() <- readChan pump
+    --writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 3)
 
     -- Deliver Charlie's message to Alice
     --() <- readChan pump
     --writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver 6)
 
 
-testABAHonest = runITMinIO 120 $ execUC testEnvABAHonest protABA (runAsyncF $ bangFAsync fMulticastAndCoin) dummyAdversary
+testABAHonest = runITMinIO 120 $ execUC testEnvABAHonest (runAsyncP protABA) (runAsyncF $ bangFAsync $ fMulticastAndCoin) dummyAdversary
 
