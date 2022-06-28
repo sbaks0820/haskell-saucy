@@ -1,3 +1,13 @@
+{-
+    Open questions regarding the protocol in https://arxiv.org/pdf/2002.08765.pdf:
+        1. In the first round if a party is given input Propose(X) then you end up s_broadcasting X. If all other parties s_broadcast ~X instead,
+            should you accept them towards a county for the ~X value or ignore it because you've only spawned an instance of s_broadcast for X.
+            There is a place in the protocol where in round+1 it will attempt to try ~X to see if it is a valid choice to commit to so maybe it is
+            correct to ignore the message. It will be checked in round+1.
+
+-}
+
+
  {-# LANGUAGE ScopedTypeVariables, ImplicitParams, FlexibleContexts,
  PartialTypeSignatures
   #-} 
@@ -170,9 +180,11 @@ sBroadcast tThreshold pid parties round bit f2p p2f okChan toMainChan binptr sho
                         liftIO $ putStrLn $ "\n****** sBroadcast [" ++ show pid  ++ ", " ++ show bit ++ ", " ++ show round ++ ", " ++ show shouldBCast ++ "] met second threshold, svalue is now True\n"
                         modifyIORef binptr $ Map.insert bit True
                         -- notify the main protocol that this sBroadcast value has been set to True
-                        writeChan toMainChan ()
+                        writeChan toMainChan ()  
                     else do
-						error "Received neither an AUX message or an EST messate tf"
+                        liftIO $ putStrLn "do nothing we just haven't hit any of the thresholds."
+                        pass
+                        --return ()
                 else pass
             _ -> pass 
 
@@ -260,9 +272,9 @@ protABA (z2p, p2z) (f2p, p2f) = do
     -- dispatcher from F to sBroadcast and main protocol body  
     -- and dispatcher between sBroadcast and main protocol body
     fork $ forever $ do
+        (s, m) <- readChan f2p'
         isDecided <- readIORef decided
         if not isDecided then do
-            (s, m) <- readChan f2p'
             let (pidS :: PID, fParties :: [PID], ssid :: String) = readNote "fMulticastAndCoin" $ snd s
             let (sstring :: String, _pidS :: PID, _round :: Int, _bit :: Bool) = readNote "" $ fst s
 
@@ -310,7 +322,7 @@ protABA (z2p, p2z) (f2p, p2f) = do
                         writeChan toMainOK ()
                 _ -> 
                     writeChan toMain (?pid, m)
-        else return ()
+        else ?pass
   
     -- function to deploy a new instance of sBroadcast with  
     let newSBCast r v shouldBroadcast = do
@@ -398,7 +410,9 @@ protABA (z2p, p2z) (f2p, p2f) = do
                                            return True
                                        else return False
                         return ()
-                    else return ()
+                    else do
+                        m <- readChan z2p
+                        return ()
      
     return () 
 
@@ -410,7 +424,9 @@ testEnvABAHonestAllTrue z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
     fork $ forever $ do
         --(pid, (s, m)) <- readChan p2z
         (pid, m) <- readChan p2z
-        liftIO $ putStrLn $ "Z: party[" ++ pid ++ "] output " ++ show m
+        case m of
+            ABAF2P_Out b -> liftIO $ putStrLn $ "\ESC[32mParty [" ++ show pid ++ "] decided " ++ show b ++ "\ESC[0m"
+            _ -> liftIO $ putStrLn $ "Z: party[" ++ pid ++ "] output " ++ show m
         ?pass
 
     fork $ forever $ do 
@@ -507,8 +523,8 @@ testEnvABAHonest z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
         () <- readChan pump
         writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
 
-	let bobSID :: SID = (show ("sbcast", "Bob", 1, False), show ("Bob", parties, ""))
-	writeChan z2a $ SttCruptZ2A_A2F $ Right $ (bobSID, CastA2F_Deliver "Alice" $ EST 1 False)
+    let bobSID :: SID = (show ("sbcast", "Bob", 1, False), show ("Bob", parties, ""))
+    writeChan z2a $ SttCruptZ2A_A2F $ Right $ (bobSID, CastA2F_Deliver "Alice" $ EST 1 False)
     
 
 testABAHonest = runITMinIO 120 $ execUC testEnvABAHonest (runAsyncP protABA) (runAsyncF $ bangFAsync $ fMulticastAndCoin) dummyAdversary
