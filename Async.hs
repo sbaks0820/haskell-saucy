@@ -113,6 +113,8 @@ runAsyncF f (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
   let _eventually m = do
         c :: Chan () <- newChan
         modifyIORef runqueue (++ [c])
+        l <- (readIORef runqueue >>= return . length)
+        liftIO $ putStrLn $ "Runqueue size: " ++ show l 
         fork $ readChan c >> m
         return ()
 
