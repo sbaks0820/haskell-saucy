@@ -282,10 +282,16 @@ protABA (z2p, p2z) (f2p, p2f) = do
             -- or the main protocol body
             case m of 
                 CastF2P_Deliver (EST r b) -> do
-                    liftIO $ putStrLn $ "[" ++ show pid ++ "] receives EST from " ++ show pidS
+                    liftIO $ putStrLn $ "######### [" ++ show pid ++ "] receives EST from " ++ show pidS
                     exists <- readIORef manyS >>= return . (member (r, b))
-                    _toS <- getSChan s r b manyS
+                    _toS <- getSChan s r True manyS
                     writeChan _toS (pidS, m)
+                    --if exists then do
+                    --    _toS <- getSChan s r b manyS
+                    --    writeChan _toS (pidS, m)
+                    --else do
+                    --    liftIO $ putStrLn $ "[" ++ show pid ++ "] Received a message for an s_broadcast that doesn't exist"
+                    --    ?pass 
                 CastF2P_Deliver (AUX r b) -> do
                     --writeChan toMain (pidS, m)
                     -- track the view[r_i]
@@ -448,7 +454,8 @@ testEnvABAHonestAllTrue z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
     writeChan z2p ("Mary", ClockP2F_Through True)
    
     -- Deliver all EST messages to Alice
-    forMseq_ [0,3,6,9] $ \x -> do
+    --forMseq_ [0,3,6,9] $ \x -> do
+    forMseq_ [0,3] $ \x -> do
         () <- readChan pump
         writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
     
@@ -523,8 +530,15 @@ testEnvABAHonest z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
         () <- readChan pump
         writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
 
+    () <- readChan pump
     let bobSID :: SID = (show ("sbcast", "Bob", 1, False), show ("Bob", parties, ""))
     writeChan z2a $ SttCruptZ2A_A2F $ Right $ (bobSID, CastA2F_Deliver "Alice" $ EST 1 False)
-    
+
+    forMseq_ [0,3] $ \x -> do
+        () <- readChan pump
+        writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+
+    () <- readChan pump
+    writeChan outp []
 
 testABAHonest = runITMinIO 120 $ execUC testEnvABAHonest (runAsyncP protABA) (runAsyncF $ bangFAsync $ fMulticastAndCoin) dummyAdversary
