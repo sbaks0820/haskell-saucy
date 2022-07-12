@@ -104,6 +104,7 @@ runAsyncF f (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
         l <- readIORef leaks
         writeChan f2a $ (Left $ ClockF2A_Leaks l)
       Left (ClockA2F_Deliver idx) -> do
+                     liftIO $ putStrLn $ "Delivering idx=" ++ show idx
                      q <- readIORef runqueue
                      modifyIORef runqueue (deleteNth idx)
                      writeChan (q !! idx) ()
@@ -114,7 +115,7 @@ runAsyncF f (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
         c :: Chan () <- newChan
         modifyIORef runqueue (++ [c])
         l <- (readIORef runqueue >>= return . length)
-        liftIO $ putStrLn $ "Runqueue size: " ++ show l 
+        liftIO $ putStrLn $ "Runqueue size: " ++ show l
         fork $ readChan c >> m
         return ()
 
