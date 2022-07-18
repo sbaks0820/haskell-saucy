@@ -40,7 +40,6 @@ data CastF2P a = CastF2P_OK | CastF2P_Deliver a | CastF2P_ro Bool deriving (Show
 data CastF2A a = CastF2A a | CastF2A_ro Bool deriving (Show, Eq)
 data CastA2F a = CastA2F_Deliver PID a deriving Show
 
---fMulticastAndCoin :: MonadFunctionalityAsync m (CastP2F t) =>
 fMulticastAndCoin :: MonadFunctionalityAsync m t =>
     Functionality (CastP2F t) (CastF2P t) (CastA2F t) (CastF2A t) Void Void m
 fMulticastAndCoin (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
@@ -51,14 +50,13 @@ fMulticastAndCoin (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
     let print x = do
             liftIO $ putStrLn $ x
 
-
+    -- strong coin requires the same coin for each party in a round
     coinFlips <- newIORef (empty :: Map Int Bool)
 
     if not $ member pidS ?crupt then
         -- Only activated by the designated sender
         fork $ forever $ do
             (pid, m) <- readChan p2f
-            -- print "[fMulticastAndCoin] received message on p2f" 
             case m of
                 CastP2F_ro x -> do
                     cf <- readIORef coinFlips
@@ -71,10 +69,8 @@ fMulticastAndCoin (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
                         writeChan f2p (pid, CastF2P_ro b)
                 CastP2F_cast x ->
                     if pid == pidS then do
-                        --print ("[fMulticastAndCoin, sender:" ++ (show pidS) ++ "]")
                         ?leak x
                         forMseq_ parties $ \pidR -> do
-                            --liftIO $ putStrLn $ "adding eventually for receiver [" ++ show pidR ++ "]"
                             eventually $ writeChan f2p (pidR, CastF2P_Deliver x)
                         writeChan f2p (pidS, CastF2P_OK)
                     else error "multicast activated not by sender"
@@ -148,13 +144,11 @@ sBroadcast tThreshold pid parties round bit f2p p2f okChan toMainChan binptr sho
         -- assumed we're receiving from the correct session of fMulticast by the dispatcher
         -- in the main protocol body
         (from, m) <- readChan f2p
-        liftIO $ putStrLn $ "\nGot something at sBCast [" ++ show pid  ++ ", " ++ show bit ++ ", " ++ show round ++ ", " ++ show shouldBCast++ "] msg " ++ show m 
 
         case m of
             -- Receiving messages from other parties with TAG,S_VAL(v_i) where TAG is EST[r_i] where r_i is the round this sBroadcast is for
             CastF2P_Deliver (EST r b) -> do
                 -- Only consider messages received for the same `bit` and from other parties
-                liftIO $ putStrLn $ "[" ++ show pid ++ "] received EST " ++ show bit ++ " message from [" ++ show from ++ "]"
                 receivedFromPidS <- readIORef receivedESTFrom >>= return . (member from)
 
                 -- Only accept EST messages from new parties
@@ -169,16 +163,14 @@ sBroadcast tThreshold pid parties round bit f2p p2f okChan toMainChan binptr sho
                     if (v == (tThreshold + 1)) then do
                         -- only broadcast EST round bit if we haven't before
                         if (not shouldBCast) then do
-                            liftIO $ putStrLn $ ("sBroadcast [" ++ show pid  ++ ", " ++ show bit ++ ", " ++ show round ++ ", " ++ show shouldBCast++ "] broadcasting EST " ++ show round ++ " " ++ show bit)
                             writeChan p2f (sidmycast, CastP2F_cast (EST round bit))
                             readChan okChan
                             pass
                         else do
-                            liftIO $ putStrLn $ "Met first threshold but nothing to do"
                             pass
                     else if v == ((tThreshold * 2) + 1) then do
                         -- if the second threshold is reached for this bit then set the svalue_i (i.e. the bin_ptr[bit]) to True
-                        liftIO $ putStrLn $ "\nsBroadcast [" ++ show pid  ++ ", " ++ show bit ++ ", " ++ show round ++ ", " ++ show shouldBCast ++ "] met second threshold, svalue for " ++ show bit ++ " is now True\n"
+                        liftIO $ putStrLn $ "\nsBroadcast [" ++ show pid  ++ ", " ++ show bit ++ ", " ++ show round ++ ", " ++ show shouldBCast ++ "] svalue for " ++ show bit ++ " is True\n"
                         modifyIORef binptr $ Map.insert bit True
                         -- notify the main protocol that this sBroadcast value has been set to True
                         writeChan toMainChan ()  
@@ -259,12 +251,10 @@ protABA (z2p, p2z) (f2p, p2f) = do
         (s, m) <- readChan f2p'
         isDecided <- readIORef decided
         if not isDecided then do
-            -- encode all information for routing messages int he ssid of the fMulticastAndCoin instance
             let (pidS :: PID, fParties :: [PID], ssid :: String) = readNote "fMulticastAndCoin" $ snd s
             let (sstring :: String, _pidS :: PID, _round :: Int, _bit :: Bool) = readNote "" $ fst s
 
-            -- index channels by the SSID and send to the appropriate instance of either sBroadcast
-            -- or the main protocol body
+            -- send to the right sBroadcast or the main protocol body based on ssid
             case m of 
                 CastF2P_Deliver (EST r b) -> do
                     -- give the message to the sbcast for this round and bit
@@ -376,7 +366,6 @@ protABA (z2p, p2z) (f2p, p2f) = do
 
                         -- wait for one of the processes to write to the main thread
                         -- saying that they set binptr[b] = True
-                        -- ?pass 
                         writeChan p2z ABAF2P_Ok
                         s2MainChan <- readIORef sb2mainChans >>= return . (! r) 
                         () <- readChan s2MainChan
@@ -409,23 +398,19 @@ protABA (z2p, p2z) (f2p, p2f) = do
                         t <- readIORef viewRTrue >>= return . (member r)
                         f <- readIORef viewRFalse >>= return . (member r)
                         supportCoin <- if t && f then do
-                                           gprint "not deciding because both T and F are true" r
                                            return True
                                        else if t || f then do 
                                            if t then do
-                                               gprint "Deciding TRUE" r
                                                modifyIORef decided $ not
                                                writeChan p2z (ABAF2P_Out True)
                                            else do
-                                               gprint "Deciding FALSE" r
                                                writeChan p2z (ABAF2P_Out False)
                                                modifyIORef decided $ not
                                            return True
                                        else do  
-                                           gprint "Not deciding and no view" r
                                            return False
 
-                        -- set the binptr values back to zero for the next round
+                        -- set the binptr values back to False for the next round
                         modifyIORef binptr $ Map.insert True False
                         modifyIORef binptr $ Map.insert False False
                         return ()
@@ -721,7 +706,8 @@ fABA (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
                     numTrue <- readIORef inputs >>= return . sum . map (\x -> if x then 1 else 0) . Map.elems
                     numFalse <- readIORef inputs >>= return . sum . map (\x -> if not x then 1 else 0) . Map.elems
                     return (numTrue, numFalse)
-    let isAdvChoice = countInputs >>= (\(nt, nf) -> return ((nt > t) && (nf > t)))
+    let isAdvChoice = do
+        countInputs >>= (\(nt, nf) -> return (((nt > t) && (nf > t)), nt, nf))
 
     -- party inputs and schedule decision when inputs from honest parties
     fork $ forever $ do
@@ -731,13 +717,11 @@ fABA (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
             modifyIORef inputs $ Map.insert pid m
             ?leak (pid, m)
             
-           -- ready <- readIORef inputs >>= return . Map.keys >>= \k -> 
-           --             return . foldl (&&) True $ map (\x -> if not $ member x ?crupt then elem x k else True) parties
             ready <- readIORef inputs >>= return . ((length parties) ==) . length . Map.keys
             if ready then do
                 b <- ?getBit
-                isAdvChoice >>= \u -> (countInputs >>= \(nt, _) -> 
-                       writeIORef decision $ if u then b else if (nt > t) then True else False)
+                isAdvChoice >>= \(u, nt, nf) ->
+                       writeIORef decision $ if u then b else if (nt > t) then True else False
 
                 forMseq_ parties $ \pidX -> do
                     eventually $ (readIORef decision >>= \d -> writeChan f2p (pidX, ABAF2P_Out d))
@@ -745,19 +729,18 @@ fABA (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
             else return ()
             writeChan f2p (pid, ABAF2P_Ok)
             -- ?pass
-        else error ("second input for party " ++ show pid)
+        else error ("second input for same party " ++ show pid)
     
     -- adversary can set crupt inputs and decide bit
     fork $ forever $ do
         m <- readChan a2f
-        liftIO $ putStrLn $ "Input on a2f"
         case m of 
             -- adv can override any crupt party's input
             ABAA2F_Input p b -> do
                 if not $ member p ?crupt then modifyIORef inputs $ Map.insert p b else return ()
             -- if adv choice is set then adv chooses bit
             ABAA2F_Decide b -> 
-                isAdvChoice >>= \c -> if c then writeIORef decision b else return ()
+                isAdvChoice >>= \(c,_,_) -> if c then writeIORef decision b else return ()
         writeChan f2a ABAF2A_Ok
         -- ?pass
     return ()
@@ -858,19 +841,17 @@ simABA (z2a, a2z) (p2a, a2p) (f2a, a2f) = do
         case mf of
             (_pidS, ABAF2P_Ok) -> writeChan chanOk ()
             (_pidS, ABAF2P_Out b) -> do
-                -- tell all crupt parties to give that input
+                -- simulator just tries to force the bit: give all crupt
+                -- parties b as input and try to force the decision
                 forMseq_ (Map.keys ?crupt) $ \pidC -> do
                     writeChan a2p (pidC, ClockP2F_Through b)
-                    -- get the OK back
-                    readChan p2a 
+                    readChan p2a  --OK messsage
+
                 -- also try to set the bit in fABA just in case
                 writeChan a2f (Right (ABAA2F_Decide b))
-                mf <- readChan f2a
-                case mf of
-                    Right ABAF2A_Ok -> return ()
-                    _ -> error "expected OK from fABA"
+                readChan f2a --OK
+    
                 -- Deliver this pid's output in fABA
-                --let idx = findIndex (== _pidS) parties
                 idx <- readIORef partiesToDeliver >>= return . (findIndex (== _pidS))
                 case idx of
                     Just x -> do 
