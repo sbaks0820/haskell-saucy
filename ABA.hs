@@ -30,7 +30,9 @@ import Control.Monad (forever, forM, liftM)
 import Control.Monad.Loops (whileM_)
 import Data.IORef.MonadIO
 import Data.Map.Strict (member, empty, insert, Map, (!))
+import Test.QuickCheck.Monadic
 import qualified Data.Map.Strict as Map
+--import qualified Data.Set as Set
 
 
 forMseq_ xs f = sequence_ $ map f xs
@@ -491,7 +493,6 @@ testEnvABAHonestAllTrue z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
         writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
 
 testABAHonestAllTrue = runITMinIO 120 $ execUC testEnvABAHonestAllTrue (runAsyncP protABA) (runAsyncF $ bangFAsync $ fMulticastAndCoin) dummyAdversary
-
 
 testEnvABAOneCruptOneRound z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
     let parties = ["Alice", "Bob", "Charlie", "Mary"]
@@ -1009,6 +1010,95 @@ testCompare = runITMinIO 120 $ do
             (runAsyncF $ fABA)
             simABA
     return (t1 == t2)
+
+prop_abaequivocation = monadicIO $ do
+    outputs <- newIORef (Set.empty :: Set Bool)
+
+    testQuickCheckEnv z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
+        let sid = ("sidTestEnvMulticastCoin", show (["Alice", "Bob", "Charlie", "Mary"], 1, ""))
+        writeChan z2exec $ SttCrupt_SidCrupt sid empty 
+    
+        transcript <- newIORef []
+ 
+        fork $ forever $ do
+            --(pid, (s, m)) <- readChan p2z
+            (pid, m) <- readChan p2z
+            modifyIORef transcript (++ [Right (pid, m)])
+            case m of
+                ABAF2P_Out b -> do
+                    liftIO $ putStrLn $ "\ESC[33mParty [" ++ show pid ++ "] decided " ++ show b ++ "\ESC[0m"
+                    modifyIORef outputs $ Set.insert b
+                _ -> printEnvReal "OK"
+            ?pass
+    
+        fork $ forever $ do 
+            m <- readChan a2z
+            modifyIORef transcript (++ [Left m])
+            liftIO $ putStrLn $ "Z: a sent " ++ show m 
+            ?pass
+        () <- readChan pump
+        writeChan z2p ("Alice", ClockP2F_Through True)
+        
+        () <- readChan pump
+        writeChan z2p ("Bob", ClockP2F_Through True)
+
+        () <- readChan pump
+        writeChan z2p ("Charlie", ClockP2F_Through True)
+
+        () <- readChan pump
+        writeChan z2p ("Mary", ClockP2F_Through True)
+   
+        -- Deliver all EST messages to Alice
+        forMseq_ [0,3,6,9] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+        
+        -- Deliver all EST messages to Bob
+        forMseq_ [0,2,4,6] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+
+        -- Deliver all EST messages to Charlie
+        forMseq_ [0,1,2,3] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+        
+        -- Deliver all EST messages to Mary
+        forMseq_ [0,0,0,0] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+
+        -- Deliver all AUX messages to Alice 
+        forMseq_ [0,3,6,9] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+        
+        -- Deliver all AUX messages to Bob
+        forMseq_ [0,2,4,6] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+
+        -- Deliver all AUX messages to Charlie
+        forMseq_ [0,1,2,3] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+        
+        -- Deliver all AUX messages to Mary
+        forMseq_ [0,0,0,0] $ \x -> do
+            () <- readChan pump
+            writeChan z2a $ SttCruptZ2A_A2F $ Left (ClockA2F_Deliver x)
+
+        () <- readChan pump
+        writeChan outp =<< readIORef transcript
+
+    runITMinIO 120 $ do
+                execUC
+                testEnvSimHonest
+                (runAsyncP protABA)
+                (runAsyncF $ bangFAsync fMulticastAndCoin)
+                dummyAdversary
+
+    readIORef outputs >>= \x -> return ((Set.size x) ?== 1)
 
 
 testEnvSimCrupt z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
