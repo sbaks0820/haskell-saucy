@@ -17,6 +17,8 @@ import Control.Monad.Loops (whileM_)
 import Data.IORef.MonadIO
 import Data.Map.Strict (Map)
 import Data.List (elemIndex, delete)
+import Test.QuickCheck
+import Test.QuickCheck.Monadic
 import qualified Data.Map.Strict as Map
 
 {- fACast: an asynchronous broadcast functionality, Bracha's Broadcast -}
@@ -53,7 +55,40 @@ fACast (p2f, f2p) (a2f, f2a) (z2f, f2z) = do
 
   writeChan f2p (pidS, ACastF2P_OK)
 
-
+prop_Safety = monadicIO $ do
+	let propEnv z2exec (p2z, z2p) (a2z, z2a) (f2z, z2f) pump outp = do
+	  	let extendRight conf = show ("", conf)
+	  	let sid = ("sidTestACast", show ("Alice", ["Alice", "Bob", "Carol", "Dave"], 1::Integer, ""))
+	  	writeChan z2exec $ SttCrupt_SidCrupt sid Map.empty
+	  	fork $ forever $ do
+	  	  (pid, m) <- readChan p2z
+	  	  printEnvIdeal $ "[testEnvACastIdeal]: pid[" ++ pid ++ "] output " ++ show m
+	  	  ?pass
+	
+	  	-- Have Alice write a message
+	  	() <- readChan pump 
+	  	writeChan z2p ("Alice", ClockP2F_Through $ ACastP2F_Input "I'm Alice")
+	
+	  	-- Empty the queue
+	  	let checkQueue = do
+	  	      writeChan z2a $ SttCruptZ2A_A2F (Left ClockA2F_GetCount)
+	  	      mb <- readChan a2z
+	  	      let SttCruptA2Z_F2A (Left (ClockF2A_Count c)) = mb
+	  	      liftIO $ putStrLn $ "Z[testEnvACastIdeal]: Events remaining: " ++ show c
+	  	      return (c > 0)
+	
+	  	() <- readChan pump
+	  	whileM_ checkQueue $ do
+	  	  {- Two ways to make progress -}
+	  	  {- 1. Environment to Functionality - make progress -}
+	  	  -- writeChan z2f ClockZ2F_MakeProgress
+	  	  {- 2. Environment to Adversary - deliver the next message -}
+	  	  writeChan z2a $ SttCruptZ2A_A2F (Left (ClockA2F_Deliver 0))
+	  	  readChan pump
+	
+	  	writeChan outp "environment output: 1"
+	run $ runITMinIO 120 $ execUC testEnvACastIdeal (idealProtocol) (runAsyncF $ fACast) dummyAdversary
+	assert (1 == 1)	
 
 {- Protocol ACast -}
 
