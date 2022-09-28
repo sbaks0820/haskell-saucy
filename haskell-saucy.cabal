@@ -46,7 +46,7 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     ABA, Multicast, StaticCorruptions, Multisession, Commitment, ACast, ProcessIO, Async, Polynomial
+  exposed-modules:     ABA, Multicast, TestTools, StaticCorruptions, Multisession, Commitment, ACast, ProcessIO, Async, Polynomial
   -- other-modules:
   other-extensions:    ImplicitParams, ScopedTypeVariables, Rank2Types, ConstraintKinds, PartialTypeSignatures, DeriveFunctor, DeriveFoldable, DeriveTraversable, RankNTypes, FlexibleInstances, FlexibleContexts, UndecidableInstances, DataKinds, MultiParamTypeClasses, OverloadedLists, PatternSynonyms, ParallelListComp
   build-depends:       base >=4.12 && <4.15, safe >=0.3 && <0.4, monadIO >=0.11 && <0.12, mtl >=2.2 && <2.3, containers >=0.6 && <0.7, random >=1.2 && <1.3, vector >=0.12 && <0.13, transformers >=0.5 && <0.6, galois-field >= 1.0.2 && < 1.1, poly >= 0.4.0 && < 0.5, monad-loops >=0.4 && < 0.5 

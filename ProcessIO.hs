@@ -70,6 +70,10 @@ printAdv s = liftIO $ putStrLn $ "A: \ESC[31m" ++ s ++ "\ESC[0m"
 printEnvIdeal s = liftIO $ putStrLn $ "Z: \ESC[32m" ++ s ++ "\ESC[0m"
 printEnvReal s = liftIO $ putStrLn $ "Z: \ESC[34m" ++ s ++ "\ESC[0m"
 
+printBlue s = liftIO $ putStrLn $ "\ESC[34m" ++ s ++ "\ESC[0m"
+printRed s = liftIO $ putStrLn $ "\ESC[31m" ++ s ++ "\ESC[0m"
+printYellow s = liftIO $ putStrLn $ "\ESC[33m" ++ s ++ "\ESC[0m"
+
 {-- Communicating over channels --}
 {-- Haskell-SaUCy processes can make use of the
      writeChan
